@@ -49,16 +49,18 @@ class SentenceVAE(nn.Module):
 
     def forward(self, input_sequence, length):
 
+        # print(input_sequence.shape)
+
         batch_size = input_sequence.size(0)
-        sorted_lengths, sorted_idx = torch.sort(length, descending=True)
-        input_sequence = input_sequence[sorted_idx]
+        # sorted_lengths, sorted_idx = torch.sort(length, descending=True)
+        # input_sequence = input_sequence[sorted_idx]
 
         # ENCODER
         input_embedding = self.embedding(input_sequence)
 
-        packed_input = rnn_utils.pack_padded_sequence(input_embedding, sorted_lengths.data.tolist(), batch_first=True)
+        # packed_input = rnn_utils.pack_padded_sequence(input_embedding, sorted_lengths.data.tolist(), batch_first=True)
 
-        _, hidden = self.encoder_rnn(packed_input)
+        _, hidden = self.encoder_rnn(input_embedding)
 
         if self.bidirectional or self.num_layers > 1:
             # flatten hidden state
@@ -76,39 +78,42 @@ class SentenceVAE(nn.Module):
 
         # DECODER
         hidden = self.latent2hidden(z)
+        logp = nn.functional.log_softmax(self.outputs2vocab(hidden))
+        # print(logp.shape)
 
-        if self.bidirectional or self.num_layers > 1:
-            # unflatten hidden state
-            hidden = hidden.view(self.hidden_factor, batch_size, self.hidden_size)
-        else:
-            hidden = hidden.unsqueeze(0)
 
-        # decoder input
-        if self.word_dropout_rate > 0:
-            # randomly replace decoder input with <unk>
-            prob = torch.rand(input_sequence.size())
-            if torch.cuda.is_available():
-                prob=prob.cuda()
-            prob[(input_sequence.data - self.sos_idx) * (input_sequence.data - self.pad_idx) == 0] = 1
-            decoder_input_sequence = input_sequence.clone()
-            decoder_input_sequence[prob < self.word_dropout_rate] = self.unk_idx
-            input_embedding = self.embedding(decoder_input_sequence)
-        input_embedding = self.embedding_dropout(input_embedding)
-        packed_input = rnn_utils.pack_padded_sequence(input_embedding, sorted_lengths.data.tolist(), batch_first=True)
+        # if self.bidirectional or self.num_layers > 1:
+        #     # unflatten hidden state
+        #     hidden = hidden.view(self.hidden_factor, batch_size, self.hidden_size)
+        # else:
+        #     hidden = hidden.unsqueeze(0)
 
-        # decoder forward pass
-        outputs, _ = self.decoder_rnn(packed_input, hidden)
+        # # decoder input
+        # if self.word_dropout_rate > 0:
+        #     # randomly replace decoder input with <unk>
+        #     prob = torch.rand(input_sequence.size())
+        #     if torch.cuda.is_available():
+        #         prob=prob.cuda()
+        #     prob[(input_sequence.data - self.sos_idx) * (input_sequence.data - self.pad_idx) == 0] = 1
+        #     decoder_input_sequence = input_sequence.clone()
+        #     decoder_input_sequence[prob < self.word_dropout_rate] = self.unk_idx
+        #     input_embedding = self.embedding(decoder_input_sequence)
+        # input_embedding = self.embedding_dropout(input_embedding)
+        # packed_input = rnn_utils.pack_padded_sequence(input_embedding, sorted_lengths.data.tolist(), batch_first=True)
 
-        # process outputs
-        padded_outputs = rnn_utils.pad_packed_sequence(outputs, batch_first=True)[0]
-        padded_outputs = padded_outputs.contiguous()
-        _,reversed_idx = torch.sort(sorted_idx)
-        padded_outputs = padded_outputs[reversed_idx]
-        b,s,_ = padded_outputs.size()
+        # # decoder forward pass
+        # outputs, _ = self.decoder_rnn(packed_input, hidden)
 
-        # project outputs to vocab
-        logp = nn.functional.log_softmax(self.outputs2vocab(padded_outputs.view(-1, padded_outputs.size(2))), dim=-1)
-        logp = logp.view(b, s, self.embedding.num_embeddings)
+        # # process outputs
+        # padded_outputs = rnn_utils.pad_packed_sequence(outputs, batch_first=True)[0]
+        # padded_outputs = padded_outputs.contiguous()
+        # _,reversed_idx = torch.sort(sorted_idx)
+        # padded_outputs = padded_outputs[reversed_idx]
+        # b,s,_ = padded_outputs.size()
+
+        # # project outputs to vocab
+        # logp = nn.functional.log_softmax(self.outputs2vocab(padded_outputs.view(-1, padded_outputs.size(2))), dim=-1)
+        # logp = logp.view(b, s, self.embedding.num_embeddings)
 
 
         return logp, mean, logv, z
